@@ -167,6 +167,57 @@ module Packwerk
         assert(content_with_invalid_or_missing_sigils.none? { |content| Privacy::Checker.content_contains_sigil?(content) })
       end
 
+      test 'does not complain about private constant with @pack_public annotation when method_privacy_patterns match' do
+        destination_package = Packwerk::Package.new(
+          name: 'destination_package',
+          config: { 'enforce_privacy' => true, 'method_privacy_patterns' => ['some/**/*.rb'] }
+        )
+        checker = privacy_checker
+        reference = build_reference(destination_package: destination_package)
+
+        GranularPublicityResolver.expects(:public_constant?).with(
+          'some/location.rb',
+          '::SomeName',
+          ['some/**/*.rb']
+        ).returns(true)
+
+        refute checker.invalid_reference?(reference)
+      end
+
+      test 'complains about private constant without @pack_public annotation when method_privacy_patterns match' do
+        destination_package = Packwerk::Package.new(
+          name: 'destination_package',
+          config: { 'enforce_privacy' => true, 'method_privacy_patterns' => ['some/**/*.rb'] }
+        )
+        checker = privacy_checker
+        reference = build_reference(destination_package: destination_package)
+
+        GranularPublicityResolver.expects(:public_constant?).with(
+          'some/location.rb',
+          '::SomeName',
+          ['some/**/*.rb']
+        ).returns(false)
+
+        assert checker.invalid_reference?(reference)
+      end
+
+      test 'method_privacy_patterns defaults to empty array' do
+        destination_package = Packwerk::Package.new(
+          name: 'destination_package',
+          config: { 'enforce_privacy' => true }
+        )
+        checker = privacy_checker
+        reference = build_reference(destination_package: destination_package)
+
+        GranularPublicityResolver.expects(:public_constant?).with(
+          'some/location.rb',
+          '::SomeName',
+          []
+        ).returns(false)
+
+        assert checker.invalid_reference?(reference)
+      end
+
       private
 
       sig { returns(Checker) }

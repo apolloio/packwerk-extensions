@@ -126,6 +126,36 @@ module Packwerk
         assert result.ok?
       end
 
+      test 'does not create a validation error when method_privacy_patterns is an array of strings' do
+        use_template(:minimal)
+        merge_into_app_yaml_file('package.yml', { 'method_privacy_patterns' => ['app/services/**/*.rb'] })
+        result = Packwerk::Privacy::Validator.new.call(package_set, config)
+        assert result.ok?
+      end
+
+      test 'does not create a validation error when method_privacy_patterns has multiple patterns' do
+        use_template(:minimal)
+        merge_into_app_yaml_file('package.yml', { 'method_privacy_patterns' => ['app/services/**/*.rb', 'app/interactors/**/*.rb'] })
+        result = Packwerk::Privacy::Validator.new.call(package_set, config)
+        assert result.ok?
+      end
+
+      test 'creates a validation error when method_privacy_patterns is not an array' do
+        use_template(:minimal)
+        merge_into_app_yaml_file('package.yml', { 'method_privacy_patterns' => 'app/services/**/*.rb' })
+        result = Packwerk::Privacy::Validator.new.call(package_set, config)
+        refute result.ok?
+        assert_match(/'method_privacy_patterns' option must be an array of strings/, result.error_value)
+      end
+
+      test 'creates a validation error when method_privacy_patterns contains non-strings' do
+        use_template(:minimal)
+        merge_into_app_yaml_file('package.yml', { 'method_privacy_patterns' => ['app/services/**/*.rb', 123] })
+        result = Packwerk::Privacy::Validator.new.call(package_set, config)
+        refute result.ok?
+        assert_match(/'method_privacy_patterns' option must be an array of strings/, result.error_value)
+      end
+
       private
 
       sig { returns(ApplicationValidator) }

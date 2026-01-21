@@ -26,12 +26,17 @@ module Packwerk
           results << check_public_path(config_file_path, setting)
         end
 
+        method_privacy_patterns_settings = package_manifests_settings_for(configuration, 'method_privacy_patterns')
+        method_privacy_patterns_settings.each do |config_file_path, setting|
+          results << check_method_privacy_patterns(config_file_path, setting)
+        end
+
         merge_results(results, separator: "\n---\n")
       end
 
       sig { override.returns(T::Array[String]) }
       def permitted_keys
-        %w[public_path enforce_privacy private_constants ignored_private_constants strict_privacy_ignored_patterns]
+        %w[public_path enforce_privacy private_constants ignored_private_constants strict_privacy_ignored_patterns method_privacy_patterns]
       end
 
       private
@@ -87,6 +92,22 @@ module Packwerk
             error_value: "'public_path' option must be a string in #{config_file_path.inspect}: #{setting.inspect}"
           )
         end
+      end
+
+      sig do
+        params(config_file_path: String, setting: T.untyped).returns(Result)
+      end
+      def check_method_privacy_patterns(config_file_path, setting)
+        return Result.new(ok: true) if setting.nil?
+
+        unless setting.is_a?(Array) && setting.all? { |s| s.is_a?(String) }
+          return Result.new(
+            ok: false,
+            error_value: "'method_privacy_patterns' option must be an array of strings in #{config_file_path.inspect}: #{setting.inspect}"
+          )
+        end
+
+        Result.new(ok: true)
       end
 
       sig do

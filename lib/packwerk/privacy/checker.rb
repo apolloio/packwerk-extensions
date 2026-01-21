@@ -3,6 +3,7 @@
 
 require 'packwerk/privacy/package'
 require 'packwerk/privacy/validator'
+require 'packwerk/privacy/granular_publicity_resolver'
 
 module Packwerk
   module Privacy
@@ -60,6 +61,11 @@ module Packwerk
 
         return false if privacy_package.public_path?(reference.constant.location)
         return false if self.class.publicized_location?(reference.constant.location)
+        return false if GranularPublicityResolver.public_constant?(
+          reference.constant.location,
+          reference.constant.name,
+          privacy_package.method_privacy_patterns
+        )
 
         privacy_option = privacy_package.enforce_privacy
         return false if enforcement_disabled?(privacy_option)
