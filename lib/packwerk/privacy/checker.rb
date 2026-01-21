@@ -4,6 +4,7 @@
 require 'packwerk/privacy/package'
 require 'packwerk/privacy/validator'
 require 'packwerk/privacy/granular_publicity_resolver'
+require 'packwerk/privacy/method_call_extractor'
 
 module Packwerk
   module Privacy
@@ -61,11 +62,24 @@ module Packwerk
 
         return false if privacy_package.public_path?(reference.constant.location)
         return false if self.class.publicized_location?(reference.constant.location)
-        return false if GranularPublicityResolver.public_constant?(
-          reference.constant.location,
-          reference.constant.name,
-          privacy_package.method_privacy_patterns
-        )
+
+        # Check if this is a method call and if the method is public
+        method_name = extract_method_name_from_reference(reference)
+        if method_name
+          return false if GranularPublicityResolver.public_method?(
+            reference.constant.location,
+            reference.constant.name,
+            method_name,
+            privacy_package.method_privacy_patterns
+          )
+        else
+          # Fall back to constant-level publicity check
+          return false if GranularPublicityResolver.public_constant?(
+            reference.constant.location,
+            reference.constant.name,
+            privacy_package.method_privacy_patterns
+          )
+        end
 
         privacy_option = privacy_package.enforce_privacy
         return false if enforcement_disabled?(privacy_option)
@@ -149,6 +163,19 @@ module Packwerk
         globs.any? do |glob|
           path.fnmatch(glob, File::FNM_EXTGLOB)
         end
+      end
+
+      sig { params(reference: Reference).returns(T.nilable(String)) }
+      def extract_method_name_from_reference(reference)
+        source_location = reference.source_location
+        return nil unless source_location
+
+        MethodCallExtractor.extract_method_name(
+          reference.relative_path,
+          source_location.line,
+          source_location.column,
+          reference.constant.name
+        )
       end
     end
   end

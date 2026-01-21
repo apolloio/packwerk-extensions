@@ -175,6 +175,7 @@ module Packwerk
         checker = privacy_checker
         reference = build_reference(destination_package: destination_package)
 
+        MethodCallExtractor.expects(:extract_method_name).returns(nil)
         GranularPublicityResolver.expects(:public_constant?).with(
           'some/location.rb',
           '::SomeName',
@@ -192,6 +193,7 @@ module Packwerk
         checker = privacy_checker
         reference = build_reference(destination_package: destination_package)
 
+        MethodCallExtractor.expects(:extract_method_name).returns(nil)
         GranularPublicityResolver.expects(:public_constant?).with(
           'some/location.rb',
           '::SomeName',
@@ -209,6 +211,7 @@ module Packwerk
         checker = privacy_checker
         reference = build_reference(destination_package: destination_package)
 
+        MethodCallExtractor.expects(:extract_method_name).returns(nil)
         GranularPublicityResolver.expects(:public_constant?).with(
           'some/location.rb',
           '::SomeName',
@@ -216,6 +219,74 @@ module Packwerk
         ).returns(false)
 
         assert checker.invalid_reference?(reference)
+      end
+
+      test 'does not complain when method call has @pack_public annotation on method' do
+        destination_package = Packwerk::Package.new(
+          name: 'destination_package',
+          config: { 'enforce_privacy' => true, 'method_privacy_patterns' => ['some/**/*.rb'] }
+        )
+        checker = privacy_checker
+        reference = build_reference(destination_package: destination_package)
+
+        MethodCallExtractor.expects(:extract_method_name).with(
+          'some/path.rb',
+          2,
+          12,
+          '::SomeName'
+        ).returns('public_method')
+
+        GranularPublicityResolver.expects(:public_method?).with(
+          'some/location.rb',
+          '::SomeName',
+          'public_method',
+          ['some/**/*.rb']
+        ).returns(true)
+
+        refute checker.invalid_reference?(reference)
+      end
+
+      test 'complains when method call lacks @pack_public annotation' do
+        destination_package = Packwerk::Package.new(
+          name: 'destination_package',
+          config: { 'enforce_privacy' => true, 'method_privacy_patterns' => ['some/**/*.rb'] }
+        )
+        checker = privacy_checker
+        reference = build_reference(destination_package: destination_package)
+
+        MethodCallExtractor.expects(:extract_method_name).with(
+          'some/path.rb',
+          2,
+          12,
+          '::SomeName'
+        ).returns('private_method')
+
+        GranularPublicityResolver.expects(:public_method?).with(
+          'some/location.rb',
+          '::SomeName',
+          'private_method',
+          ['some/**/*.rb']
+        ).returns(false)
+
+        assert checker.invalid_reference?(reference)
+      end
+
+      test 'falls back to constant check when no method name extracted' do
+        destination_package = Packwerk::Package.new(
+          name: 'destination_package',
+          config: { 'enforce_privacy' => true, 'method_privacy_patterns' => ['some/**/*.rb'] }
+        )
+        checker = privacy_checker
+        reference = build_reference(destination_package: destination_package)
+
+        MethodCallExtractor.expects(:extract_method_name).returns(nil)
+        GranularPublicityResolver.expects(:public_constant?).with(
+          'some/location.rb',
+          '::SomeName',
+          ['some/**/*.rb']
+        ).returns(true)
+
+        refute checker.invalid_reference?(reference)
       end
 
       private

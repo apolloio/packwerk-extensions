@@ -5,12 +5,13 @@ require 'parser/current'
 
 module Packwerk
   module Privacy
-    # Resolves which constants are explicitly marked as public via @pack_public YARD annotations
+    # Resolves which constants and methods are explicitly marked as public via @pack_public YARD annotations
     # within files matching specific patterns.
     class GranularPublicityResolver
       extend T::Sig
 
-      CacheEntry = T.type_alias { { mtime: Time, constants: T::Set[String] } }
+      PublicItems = T.type_alias { { constants: T::Set[String], methods: T::Set[String] } }
+      CacheEntry = T.type_alias { { mtime: Time, items: PublicItems } }
 
       @cache = T.let({}, T::Hash[String, CacheEntry])
 
@@ -36,8 +37,25 @@ module Packwerk
           return false if patterns.empty?
           return false unless matches_pattern?(file_path, patterns)
 
-          public_constants = public_constants_for_file(file_path)
-          public_constants.include?(constant_name)
+          public_items = public_items_for_file(file_path)
+          public_items[:constants].include?(constant_name)
+        end
+
+        sig do
+          params(
+            file_path: String,
+            constant_name: String,
+            method_name: String,
+            patterns: T::Array[String]
+          ).returns(T::Boolean)
+        end
+        def public_method?(file_path, constant_name, method_name, patterns)
+          return false if patterns.empty?
+          return false unless matches_pattern?(file_path, patterns)
+
+          public_items = public_items_for_file(file_path)
+          # Check for fully qualified method name: "::ClassName.method_name"
+          public_items[:methods].include?("#{constant_name}.#{method_name}")
         end
 
         private
@@ -50,24 +68,25 @@ module Packwerk
           end
         end
 
-        sig { params(file_path: String).returns(T::Set[String]) }
-        def public_constants_for_file(file_path)
-          return Set.new unless File.exist?(file_path)
+        sig { params(file_path: String).returns(PublicItems) }
+        def public_items_for_file(file_path)
+          empty_items = { constants: Set.new, methods: Set.new }
+          return empty_items unless File.exist?(file_path)
 
           current_mtime = File.mtime(file_path)
           cached = cache[file_path]
 
           if cached && cached[:mtime] == current_mtime
-            return cached[:constants]
+            return cached[:items]
           end
 
-          constants = extract_public_constants(file_path)
-          cache[file_path] = { mtime: current_mtime, constants: constants }
-          constants
+          items = extract_public_items(file_path)
+          cache[file_path] = { mtime: current_mtime, items: items }
+          items
         end
 
-        sig { params(file_path: String).returns(T::Set[String]) }
-        def extract_public_constants(file_path)
+        sig { params(file_path: String).returns(PublicItems) }
+        def extract_public_items(file_path)
           source = File.read(file_path)
           buffer = Parser::Source::Buffer.new(file_path)
           buffer.source = source
@@ -75,14 +94,15 @@ module Packwerk
           parser = Parser::CurrentRuby.new
           ast, comments = parser.parse_with_comments(buffer)
 
-          return Set.new unless ast
+          empty_items = { constants: Set.new, methods: Set.new }
+          return empty_items unless ast
 
           public_comment_lines = find_pack_public_comment_lines(comments)
-          return Set.new if public_comment_lines.empty?
+          return empty_items if public_comment_lines.empty?
 
-          ConstantExtractor.new(public_comment_lines).extract(ast)
+          PublicItemExtractor.new(public_comment_lines).extract(ast)
         rescue Parser::SyntaxError
-          Set.new
+          { constants: Set.new, methods: Set.new }
         end
 
         sig { params(comments: T::Array[Parser::Source::Comment]).returns(T::Set[Integer]) }
@@ -97,8 +117,9 @@ module Packwerk
         end
       end
 
-      # Extracts fully qualified constant names from AST nodes that follow @pack_public comments
-      class ConstantExtractor
+      # Extracts fully qualified constant names and method names from AST nodes
+      # that follow @pack_public comments
+      class PublicItemExtractor
         extend T::Sig
 
         sig { params(public_comment_lines: T::Set[Integer]).void }
@@ -106,12 +127,13 @@ module Packwerk
           @public_comment_lines = public_comment_lines
           @nesting = T.let([], T::Array[String])
           @public_constants = T.let(Set.new, T::Set[String])
+          @public_methods = T.let(Set.new, T::Set[String])
         end
 
-        sig { params(ast: Parser::AST::Node).returns(T::Set[String]) }
+        sig { params(ast: Parser::AST::Node).returns(PublicItems) }
         def extract(ast)
           visit(ast)
-          @public_constants
+          { constants: @public_constants, methods: @public_methods }
         end
 
         private
@@ -125,6 +147,8 @@ module Packwerk
             handle_class_or_module(node)
           when :casgn
             handle_constant_assignment(node)
+          when :defs
+            handle_singleton_method(node)
           else
             node.children.each { |child| visit(child) if child.is_a?(Parser::AST::Node) }
           end
@@ -165,6 +189,21 @@ module Packwerk
           node.children.each { |child| visit(child) }
         end
 
+        sig { params(node: Parser::AST::Node).void }
+        def handle_singleton_method(node)
+          receiver, method_name, * = node.children
+
+          return unless method_name.is_a?(Symbol)
+          return unless receiver.is_a?(Parser::AST::Node)
+          return unless receiver.type == :self
+
+          if marked_public?(node)
+            # Build method name as "::ClassName.method_name"
+            class_name = build_current_class_name
+            @public_methods.add("#{class_name}.#{method_name}")
+          end
+        end
+
         sig { params(node: Parser::AST::Node).returns(T::Boolean) }
         def marked_public?(node)
           node_line = node.loc.line
@@ -195,6 +234,15 @@ module Packwerk
             "::#{name}"
           else
             "::#{@nesting.join('::')}::#{name}"
+          end
+        end
+
+        sig { returns(String) }
+        def build_current_class_name
+          if @nesting.empty?
+            '::'
+          else
+            "::#{@nesting.join('::')}"
           end
         end
       end
