@@ -96,24 +96,16 @@ module Packwerk
 
           empty_items = { constants: Set.new, methods: Set.new }
           return empty_items unless ast
+          return empty_items unless comments_contain_pack_public?(comments)
 
-          public_comment_lines = find_pack_public_comment_lines(comments)
-          return empty_items if public_comment_lines.empty?
-
-          PublicItemExtractor.new(public_comment_lines).extract(ast)
+          PublicItemExtractor.new(comments).extract(ast)
         rescue Parser::SyntaxError
           { constants: Set.new, methods: Set.new }
         end
 
-        sig { params(comments: T::Array[Parser::Source::Comment]).returns(T::Set[Integer]) }
-        def find_pack_public_comment_lines(comments)
-          result = Set.new
-          comments.each do |comment|
-            if comment.text =~ /@pack_public\b/
-              result.add(comment.loc.last_line)
-            end
-          end
-          result
+        sig { params(comments: T::Array[Parser::Source::Comment]).returns(T::Boolean) }
+        def comments_contain_pack_public?(comments)
+          comments.any? { |comment| comment.text =~ /@pack_public\b/ }
         end
       end
 
@@ -122,9 +114,9 @@ module Packwerk
       class PublicItemExtractor
         extend T::Sig
 
-        sig { params(public_comment_lines: T::Set[Integer]).void }
-        def initialize(public_comment_lines)
-          @public_comment_lines = public_comment_lines
+        sig { params(comments: T::Array[Parser::Source::Comment]).void }
+        def initialize(comments)
+          @comment_by_line = T.let(build_comment_index(comments), T::Hash[Integer, Parser::Source::Comment])
           @nesting = T.let([], T::Array[String])
           @public_constants = T.let(Set.new, T::Set[String])
           @public_methods = T.let(Set.new, T::Set[String])
@@ -233,16 +225,38 @@ module Packwerk
 
         sig { params(node: Parser::AST::Node).returns(T::Boolean) }
         def marked_public?(node)
-          node_line = node.loc.line
+          target_line = node.loc.line
 
-          # Check if @pack_public is directly above
-          return true if @public_comment_lines.include?(node_line - 1)
+          # If there's a sig block above, start from above the sig
+          sig_start_line = @sig_blocks[target_line - 1]
+          check_from_line = sig_start_line ? sig_start_line - 1 : target_line - 1
 
-          # Check if there's a sig block above, and @pack_public is above that
-          sig_start_line = @sig_blocks[node_line - 1]
-          return true if sig_start_line && @public_comment_lines.include?(sig_start_line - 1)
+          # Scan backwards through contiguous comment lines
+          comment_block_contains_pack_public?(check_from_line)
+        end
+
+        sig { params(start_line: Integer).returns(T::Boolean) }
+        def comment_block_contains_pack_public?(start_line)
+          current_line = start_line
+
+          # Walk backwards through contiguous comment lines
+          while @comment_by_line[current_line]
+            comment = T.must(@comment_by_line[current_line])
+            return true if comment.text =~ /@pack_public\b/
+
+            current_line -= 1
+          end
 
           false
+        end
+
+        sig do
+          params(comments: T::Array[Parser::Source::Comment]).returns(T::Hash[Integer, Parser::Source::Comment])
+        end
+        def build_comment_index(comments)
+          comments.each_with_object({}) do |comment, index|
+            index[comment.loc.last_line] = comment
+          end
         end
 
         sig { params(node: T.untyped).returns(T.nilable(String)) }
