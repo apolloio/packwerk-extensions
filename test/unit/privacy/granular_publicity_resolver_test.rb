@@ -321,6 +321,103 @@ module Packwerk
         )
       end
 
+      test 'returns true when @pack_public is above a Sorbet sig block' do
+        use_template(:minimal)
+        write_app_file(['app/services/analyzer.rb'], <<~RUBY)
+          class Analyzer
+            extend T::Sig
+
+            # Sample top memory consuming keys
+            # @pack_public
+            sig { params(redis: Redis, sample_size: Integer).returns(T::Hash[String, Integer]) }
+            def self.sample_keys(redis, sample_size)
+              # implementation
+            end
+          end
+        RUBY
+
+        assert GranularPublicityResolver.public_method?(
+          to_app_path('app/services/analyzer.rb'),
+          '::Analyzer',
+          'sample_keys',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'returns true when @pack_public is directly above method with sig below' do
+        use_template(:minimal)
+        write_app_file(['app/services/analyzer.rb'], <<~RUBY)
+          class Analyzer
+            extend T::Sig
+
+            sig { params(redis: Redis).returns(T::Hash[String, Integer]) }
+            # @pack_public
+            def self.sample_keys(redis)
+              # implementation
+            end
+          end
+        RUBY
+
+        assert GranularPublicityResolver.public_method?(
+          to_app_path('app/services/analyzer.rb'),
+          '::Analyzer',
+          'sample_keys',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'returns true when @pack_public is above multi-line Sorbet sig block' do
+        use_template(:minimal)
+        write_app_file(['app/services/analyzer.rb'], <<~RUBY)
+          class Analyzer
+            extend T::Sig
+
+            # @pack_public
+            sig do
+              params(
+                redis: Redis,
+                sample_size: Integer,
+                take: Integer
+              ).returns(T::Hash[String, Integer])
+            end
+            def self.sample_top_memory_consuming_keys(redis, sample_size, take: 50)
+              # implementation
+            end
+          end
+        RUBY
+
+        assert GranularPublicityResolver.public_method?(
+          to_app_path('app/services/analyzer.rb'),
+          '::Analyzer',
+          'sample_top_memory_consuming_keys',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'returns false when @pack_public is not adjacent to method or sig' do
+        use_template(:minimal)
+        write_app_file(['app/services/analyzer.rb'], <<~RUBY)
+          class Analyzer
+            extend T::Sig
+
+            # @pack_public
+            # This is a different comment
+
+            sig { params(redis: Redis).returns(T::Hash[String, Integer]) }
+            def self.sample_keys(redis)
+              # implementation
+            end
+          end
+        RUBY
+
+        refute GranularPublicityResolver.public_method?(
+          to_app_path('app/services/analyzer.rb'),
+          '::Analyzer',
+          'sample_keys',
+          ['app/services/**/*.rb']
+        )
+      end
+
       test 'returns false when singleton method lacks @pack_public annotation' do
         use_template(:minimal)
         write_app_file(['app/services/analyzer.rb'], <<~RUBY)

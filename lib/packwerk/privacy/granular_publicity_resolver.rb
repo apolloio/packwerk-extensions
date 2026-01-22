@@ -128,15 +128,42 @@ module Packwerk
           @nesting = T.let([], T::Array[String])
           @public_constants = T.let(Set.new, T::Set[String])
           @public_methods = T.let(Set.new, T::Set[String])
+          @sig_blocks = T.let({}, T::Hash[Integer, Integer]) # end_line => start_line
         end
 
         sig { params(ast: Parser::AST::Node).returns(PublicItems) }
         def extract(ast)
-          visit(ast)
+          find_sig_blocks(ast) # First pass: find all sig blocks
+          visit(ast)           # Second pass: extract public items
           { constants: @public_constants, methods: @public_methods }
         end
 
         private
+
+        sig { params(node: T.untyped).void }
+        def find_sig_blocks(node)
+          return unless node.is_a?(Parser::AST::Node)
+
+          if sig_block?(node)
+            start_line = node.loc.line
+            end_line = node.loc.last_line
+            @sig_blocks[end_line] = start_line
+          end
+
+          node.children.each { |child| find_sig_blocks(child) }
+        end
+
+        sig { params(node: Parser::AST::Node).returns(T::Boolean) }
+        def sig_block?(node)
+          return false unless node.type == :block
+
+          receiver_node = node.children[0]
+          return false unless receiver_node.is_a?(Parser::AST::Node)
+          return false unless receiver_node.type == :send
+
+          _, method_name, * = receiver_node.children
+          method_name == :sig
+        end
 
         sig { params(node: T.untyped).void }
         def visit(node)
@@ -207,7 +234,15 @@ module Packwerk
         sig { params(node: Parser::AST::Node).returns(T::Boolean) }
         def marked_public?(node)
           node_line = node.loc.line
-          @public_comment_lines.include?(node_line - 1)
+
+          # Check if @pack_public is directly above
+          return true if @public_comment_lines.include?(node_line - 1)
+
+          # Check if there's a sig block above, and @pack_public is above that
+          sig_start_line = @sig_blocks[node_line - 1]
+          return true if sig_start_line && @public_comment_lines.include?(sig_start_line - 1)
+
+          false
         end
 
         sig { params(node: T.untyped).returns(T.nilable(String)) }
