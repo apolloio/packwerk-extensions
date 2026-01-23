@@ -121,6 +121,7 @@ module Packwerk
           @public_constants = T.let(Set.new, T::Set[String])
           @public_methods = T.let(Set.new, T::Set[String])
           @sig_blocks = T.let({}, T::Hash[Integer, Integer]) # end_line => start_line
+          @in_singleton_class = T.let(false, T::Boolean)
         end
 
         sig { params(ast: Parser::AST::Node).returns(PublicItems) }
@@ -168,6 +169,10 @@ module Packwerk
             handle_constant_assignment(node)
           when :defs
             handle_singleton_method(node)
+          when :sclass
+            handle_sclass(node)
+          when :def
+            handle_instance_method_in_singleton(node) if @in_singleton_class
           else
             node.children.each { |child| visit(child) if child.is_a?(Parser::AST::Node) }
           end
@@ -218,6 +223,34 @@ module Packwerk
 
           if marked_public?(node)
             # Build method name as "::ClassName.method_name"
+            class_name = build_current_class_name
+            @public_methods.add("#{class_name}.#{method_name}")
+          end
+        end
+
+        sig { params(node: Parser::AST::Node).void }
+        def handle_sclass(node)
+          receiver = node.children[0]
+
+          # Only handle `class << self`, not `class << SomeObject`
+          return unless receiver.is_a?(Parser::AST::Node) && receiver.type == :self
+
+          old_value = @in_singleton_class
+          @in_singleton_class = true
+
+          # Visit the body of the singleton class
+          body = node.children[1]
+          visit(body) if body
+
+          @in_singleton_class = old_value
+        end
+
+        sig { params(node: Parser::AST::Node).void }
+        def handle_instance_method_in_singleton(node)
+          method_name = node.children[0]
+          return unless method_name.is_a?(Symbol)
+
+          if marked_public?(node)
             class_name = build_current_class_name
             @public_methods.add("#{class_name}.#{method_name}")
           end

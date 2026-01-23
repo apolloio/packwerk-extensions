@@ -639,6 +639,172 @@ module Packwerk
 
         refute GranularPublicityResolver.public_method?(file_path, '::CachedMethod', 'api_method', patterns)
       end
+
+      # class << self tests
+
+      test 'returns true for method in class << self with @pack_public annotation' do
+        use_template(:minimal)
+        write_app_file(['app/services/singleton.rb'], <<~RUBY)
+          class Singleton
+            class << self
+              # @pack_public
+              def my_method
+              end
+            end
+          end
+        RUBY
+
+        assert GranularPublicityResolver.public_method?(
+          to_app_path('app/services/singleton.rb'),
+          '::Singleton',
+          'my_method',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'returns true for method in class << self with Sorbet sig block' do
+        use_template(:minimal)
+        write_app_file(['app/services/singleton_sig.rb'], <<~RUBY)
+          class SingletonSig
+            class << self
+              extend T::Sig
+
+              # @pack_public
+              sig { returns(String) }
+              def my_method
+                'hello'
+              end
+            end
+          end
+        RUBY
+
+        assert GranularPublicityResolver.public_method?(
+          to_app_path('app/services/singleton_sig.rb'),
+          '::SingletonSig',
+          'my_method',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'handles mixed def self and class << self methods' do
+        use_template(:minimal)
+        write_app_file(['app/services/mixed_singleton.rb'], <<~RUBY)
+          class MixedSingleton
+            # @pack_public
+            def self.method_one
+            end
+
+            class << self
+              # @pack_public
+              def method_two
+              end
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/services/mixed_singleton.rb')
+        patterns = ['app/services/**/*.rb']
+
+        assert GranularPublicityResolver.public_method?(file_path, '::MixedSingleton', 'method_one', patterns)
+        assert GranularPublicityResolver.public_method?(file_path, '::MixedSingleton', 'method_two', patterns)
+      end
+
+      test 'returns false for method in class << self without @pack_public annotation' do
+        use_template(:minimal)
+        write_app_file(['app/services/private_singleton.rb'], <<~RUBY)
+          class PrivateSingleton
+            class << self
+              def private_method
+              end
+            end
+          end
+        RUBY
+
+        refute GranularPublicityResolver.public_method?(
+          to_app_path('app/services/private_singleton.rb'),
+          '::PrivateSingleton',
+          'private_method',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'returns true for method in class << self nested in module' do
+        use_template(:minimal)
+        write_app_file(['app/services/outer/inner.rb'], <<~RUBY)
+          module Outer
+            class Inner
+              class << self
+                # @pack_public
+                def nested_method
+                end
+              end
+            end
+          end
+        RUBY
+
+        assert GranularPublicityResolver.public_method?(
+          to_app_path('app/services/outer/inner.rb'),
+          '::Outer::Inner',
+          'nested_method',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'returns true for method in class << self with multi-line sig' do
+        use_template(:minimal)
+        write_app_file(['app/services/multiline_sig.rb'], <<~RUBY)
+          class MultilineSig
+            class << self
+              extend T::Sig
+
+              # @pack_public
+              sig do
+                params(
+                  arg1: String,
+                  arg2: Integer
+                ).returns(T::Boolean)
+              end
+              def complex_method(arg1, arg2)
+                true
+              end
+            end
+          end
+        RUBY
+
+        assert GranularPublicityResolver.public_method?(
+          to_app_path('app/services/multiline_sig.rb'),
+          '::MultilineSig',
+          'complex_method',
+          ['app/services/**/*.rb']
+        )
+      end
+
+      test 'handles multiple methods in class << self' do
+        use_template(:minimal)
+        write_app_file(['app/services/multi_sclass.rb'], <<~RUBY)
+          class MultiSclass
+            class << self
+              # @pack_public
+              def public_one
+              end
+
+              def private_one
+              end
+
+              # @pack_public
+              def public_two
+              end
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/services/multi_sclass.rb')
+        patterns = ['app/services/**/*.rb']
+
+        assert GranularPublicityResolver.public_method?(file_path, '::MultiSclass', 'public_one', patterns)
+        refute GranularPublicityResolver.public_method?(file_path, '::MultiSclass', 'private_one', patterns)
+        assert GranularPublicityResolver.public_method?(file_path, '::MultiSclass', 'public_two', patterns)
+      end
     end
   end
 end
