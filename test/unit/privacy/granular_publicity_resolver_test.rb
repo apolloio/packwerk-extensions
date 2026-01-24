@@ -638,7 +638,7 @@ module Packwerk
 
         # Verify cache structure
         assert GranularPublicityResolver.cache.key?(file_path)
-        cached = GranularPublicityResolver.cache[file_path]
+        cached = T.must(GranularPublicityResolver.cache[file_path])
         assert cached[:items][:constants].include?('::Mixed')
         assert cached[:items][:methods].include?('::Mixed.api_method')
       end

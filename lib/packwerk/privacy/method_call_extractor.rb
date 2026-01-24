@@ -66,7 +66,7 @@ module Packwerk
           cache[file_path] = { mtime: current_mtime, ast: ast }
           ast
         rescue Parser::SyntaxError
-          cache[file_path] = { mtime: current_mtime, ast: nil }
+          cache[file_path] = { mtime: T.must(current_mtime), ast: nil }
           nil
         end
 
