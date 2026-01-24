@@ -72,14 +72,15 @@ module Packwerk
             method_name,
             privacy_package.method_privacy_patterns
           )
-        else
-          # Fall back to constant-level publicity check
-          return false if GranularPublicityResolver.public_constant?(
-            reference.constant.location,
-            reference.constant.name,
-            privacy_package.method_privacy_patterns
-          )
         end
+
+        # Check constant-level publicity (applies to both method calls and direct references)
+        # This allows calling .new on a @pack_public class even if .new isn't explicitly annotated
+        return false if GranularPublicityResolver.public_constant?(
+          reference.constant.location,
+          reference.constant.name,
+          privacy_package.method_privacy_patterns
+        )
 
         privacy_option = privacy_package.enforce_privacy
         return false if enforcement_disabled?(privacy_option)

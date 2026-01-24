@@ -198,6 +198,35 @@ module Packwerk
         )
       end
 
+      test 'handles class nested inside another class' do
+        use_template(:minimal)
+        write_app_file(['app/services/zp_redis/rate_limiter.rb'], <<~RUBY)
+          # typed: true
+          module ZpRedis
+            # @pack_public
+            class RateLimiter
+              # @pack_public
+              class RateLimitError < StandardError; end
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/services/zp_redis/rate_limiter.rb')
+        patterns = ['app/services/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(
+          file_path,
+          '::ZpRedis::RateLimiter',
+          patterns
+        )
+
+        assert GranularPublicityResolver.public_constant?(
+          file_path,
+          '::ZpRedis::RateLimiter::RateLimitError',
+          patterns
+        )
+      end
+
       test 'caches results and invalidates on file change' do
         use_template(:minimal)
         write_app_file(['app/services/cached.rb'], <<~RUBY)
