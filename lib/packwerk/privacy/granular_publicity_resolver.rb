@@ -122,6 +122,7 @@ module Packwerk
           @public_methods = T.let(Set.new, T::Set[String])
           @sig_blocks = T.let({}, T::Hash[Integer, Integer]) # end_line => start_line
           @in_singleton_class = T.let(false, T::Boolean)
+          @in_public_enum = T.let(false, T::Boolean)
         end
 
         sig { params(ast: Parser::AST::Node).returns(PublicItems) }
@@ -189,10 +190,19 @@ module Packwerk
 
           if name
             @nesting.push(name)
+
+            # If this is a public T::Enum class, propagate publicity to enum members
+            old_in_public_enum = @in_public_enum
+            if node.type == :class && marked_public?(node)
+              superclass_name = extract_const_name(node.children[1])
+              @in_public_enum = true if superclass_name == 'T::Enum'
+            end
+
             # Skip the name node (index 0) and optionally superclass (index 1 for class)
             body_index = node.type == :class ? 2 : 1
             body = node.children[body_index]
             visit(body)
+            @in_public_enum = old_in_public_enum
             @nesting.pop
           else
             node.children.each { |child| visit(child) }
@@ -206,7 +216,7 @@ module Packwerk
           return unless name.is_a?(Symbol)
           return unless scope.nil?
 
-          if marked_public?(node)
+          if marked_public?(node) || @in_public_enum
             @public_constants.add(build_fully_qualified_name(name.to_s))
           end
 
