@@ -669,6 +669,96 @@ module Packwerk
         refute GranularPublicityResolver.public_method?(file_path, '::CachedMethod', 'api_method', patterns)
       end
 
+      # T::Enum tests
+
+      test 'marks enum members as public when T::Enum class has @pack_public annotation' do
+        use_template(:minimal)
+        write_app_file(['app/services/status.rb'], <<~RUBY)
+          # @pack_public
+          class Status < T::Enum
+            enums do
+              Active = new(:active)
+              Inactive = new(:inactive)
+              Pending = new(:pending)
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/services/status.rb')
+        patterns = ['app/services/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(file_path, '::Status', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Status::Active', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Status::Inactive', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Status::Pending', patterns)
+      end
+
+      test 'marks enum members as public when nested T::Enum class has @pack_public annotation' do
+        use_template(:minimal)
+        write_app_file(['app/services/http/code.rb'], <<~RUBY)
+          module Http
+            # @pack_public
+            class Code < T::Enum
+              enums do
+                # 1XX
+                Continue = new(:continue)
+                SwitchingProtocols = new(:switching_protocols)
+                Processing = new(:processing)
+                EarlyHints = new(:early_hints)
+              end
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/services/http/code.rb')
+        patterns = ['app/services/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(file_path, '::Http::Code', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Http::Code::Continue', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Http::Code::SwitchingProtocols', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Http::Code::Processing', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Http::Code::EarlyHints', patterns)
+      end
+
+      test 'does not mark enum members as public when T::Enum class lacks @pack_public annotation' do
+        use_template(:minimal)
+        write_app_file(['app/services/status.rb'], <<~RUBY)
+          class Status < T::Enum
+            enums do
+              Active = new(:active)
+              Inactive = new(:inactive)
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/services/status.rb')
+        patterns = ['app/services/**/*.rb']
+
+        refute GranularPublicityResolver.public_constant?(file_path, '::Status', patterns)
+        refute GranularPublicityResolver.public_constant?(file_path, '::Status::Active', patterns)
+        refute GranularPublicityResolver.public_constant?(file_path, '::Status::Inactive', patterns)
+      end
+
+      test 'marks only individually annotated enum members as public when enum class is not annotated' do
+        use_template(:minimal)
+        write_app_file(['app/services/status.rb'], <<~RUBY)
+          class Status < T::Enum
+            enums do
+              Active = new(:active)
+              # @pack_public
+              Inactive = new(:inactive)
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/services/status.rb')
+        patterns = ['app/services/**/*.rb']
+
+        refute GranularPublicityResolver.public_constant?(file_path, '::Status', patterns)
+        refute GranularPublicityResolver.public_constant?(file_path, '::Status::Active', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Status::Inactive', patterns)
+      end
+
       # class << self tests
 
       test 'returns true for method in class << self with @pack_public annotation' do
