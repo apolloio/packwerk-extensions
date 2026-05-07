@@ -174,6 +174,9 @@ module Packwerk
             handle_sclass(node)
           when :def
             handle_instance_method_in_singleton(node) if @in_singleton_class
+          when :send
+            handle_as_enum_call(node) if as_enum_send?(node)
+            node.children.each { |child| visit(child) if child.is_a?(Parser::AST::Node) }
           else
             node.children.each { |child| visit(child) if child.is_a?(Parser::AST::Node) }
           end
@@ -264,6 +267,60 @@ module Packwerk
             class_name = build_current_class_name
             @public_methods.add("#{class_name}.#{method_name}")
           end
+        end
+
+        sig { params(node: Parser::AST::Node).returns(T::Boolean) }
+        def as_enum_send?(node)
+          receiver, method_name, * = node.children
+          receiver.nil? && method_name == :as_enum
+        end
+
+        sig { params(node: Parser::AST::Node).void }
+        def handle_as_enum_call(node)
+          return unless marked_public?(node)
+
+          _, _, field_name_node, *rest = node.children
+          return unless field_name_node.is_a?(Parser::AST::Node) && field_name_node.type == :sym
+
+          field_name = field_name_node.children[0].to_s
+          enum_class_name = camelize(field_name) + 'Enum'
+
+          @public_constants.add(build_fully_qualified_name(enum_class_name))
+
+          extract_as_enum_value_keys(rest).each do |key|
+            @public_constants.add(build_fully_qualified_name("#{enum_class_name}::#{camelize(key.to_s)}"))
+          end
+        end
+
+        sig { params(args: T::Array[T.untyped]).returns(T::Array[Symbol]) }
+        def extract_as_enum_value_keys(args)
+          keys = T.let([], T::Array[Symbol])
+          args.each do |arg|
+            next unless arg.is_a?(Parser::AST::Node)
+
+            case arg.type
+            when :hash
+              arg.children.each do |pair|
+                next unless pair.is_a?(Parser::AST::Node) && pair.type == :pair
+                key_node = pair.children[0]
+                next unless key_node.is_a?(Parser::AST::Node) && key_node.type == :sym
+                sym = key_node.children[0]
+                keys << sym if sym.is_a?(Symbol)
+              end
+            when :array
+              arg.children.each do |elem|
+                next unless elem.is_a?(Parser::AST::Node) && elem.type == :sym
+                sym = elem.children[0]
+                keys << sym if sym.is_a?(Symbol)
+              end
+            end
+          end
+          keys
+        end
+
+        sig { params(str: String).returns(String) }
+        def camelize(str)
+          str.split('_').map(&:capitalize).join
         end
 
         sig { params(node: Parser::AST::Node).returns(T::Boolean) }
