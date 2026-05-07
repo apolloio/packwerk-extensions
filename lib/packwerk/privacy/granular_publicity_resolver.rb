@@ -299,7 +299,7 @@ module Packwerk
             next unless arg.is_a?(Parser::AST::Node)
 
             case arg.type
-            when :hash
+            when :hash, :kwargs
               arg.children.each do |pair|
                 next unless pair.is_a?(Parser::AST::Node) && pair.type == :pair
                 key_node = pair.children[0]
