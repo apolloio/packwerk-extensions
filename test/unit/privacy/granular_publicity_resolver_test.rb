@@ -847,6 +847,112 @@ module Packwerk
         )
       end
 
+      # as_enum tests
+
+      test 'marks as_enum outer class and hash-form values as public when annotated' do
+        use_template(:minimal)
+        write_app_file(['app/models/permission_set.rb'], <<~RUBY)
+          class PermissionSet
+            # @pack_public
+            as_enum :type, billing_and_seat_manager: 'billing_and_seat_manager', superuser: 'superuser', regular: 'regular'
+          end
+        RUBY
+
+        file_path = to_app_path('app/models/permission_set.rb')
+        patterns = ['app/models/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(file_path, '::PermissionSet::TypeEnum', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::PermissionSet::TypeEnum::BillingAndSeatManager', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::PermissionSet::TypeEnum::Superuser', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::PermissionSet::TypeEnum::Regular', patterns)
+      end
+
+      test 'marks as_enum outer class and array-form values as public when annotated' do
+        use_template(:minimal)
+        write_app_file(['app/models/access_request.rb'], <<~RUBY)
+          class AccessRequest
+            # @pack_public
+            as_enum :feature, [:conversations, :api_access], map: :string
+          end
+        RUBY
+
+        file_path = to_app_path('app/models/access_request.rb')
+        patterns = ['app/models/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(file_path, '::AccessRequest::FeatureEnum', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::AccessRequest::FeatureEnum::Conversations', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::AccessRequest::FeatureEnum::ApiAccess', patterns)
+      end
+
+      test 'marks only outer as_enum class as public when values come from a constant reference' do
+        use_template(:minimal)
+        write_app_file(['app/models/access_request.rb'], <<~RUBY)
+          class AccessRequest
+            FEATURES = [:conversations].freeze
+            # @pack_public
+            as_enum :feature, FEATURES, map: :string
+          end
+        RUBY
+
+        file_path = to_app_path('app/models/access_request.rb')
+        patterns = ['app/models/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(file_path, '::AccessRequest::FeatureEnum', patterns)
+        refute GranularPublicityResolver.public_constant?(file_path, '::AccessRequest::FeatureEnum::Conversations', patterns)
+      end
+
+      test 'does not mark as_enum constants as public when annotation is absent' do
+        use_template(:minimal)
+        write_app_file(['app/models/permission_set.rb'], <<~RUBY)
+          class PermissionSet
+            as_enum :type, superuser: 'superuser'
+          end
+        RUBY
+
+        file_path = to_app_path('app/models/permission_set.rb')
+        patterns = ['app/models/**/*.rb']
+
+        refute GranularPublicityResolver.public_constant?(file_path, '::PermissionSet::TypeEnum', patterns)
+        refute GranularPublicityResolver.public_constant?(file_path, '::PermissionSet::TypeEnum::Superuser', patterns)
+      end
+
+      test 'handles as_enum with multi-word field name (camelize)' do
+        use_template(:minimal)
+        write_app_file(['app/models/team_preference.rb'], <<~RUBY)
+          class TeamPreference
+            # @pack_public
+            as_enum :primary_use_case, outbound: 'outbound', inbound: 'inbound'
+          end
+        RUBY
+
+        file_path = to_app_path('app/models/team_preference.rb')
+        patterns = ['app/models/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(file_path, '::TeamPreference::PrimaryUseCaseEnum', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::TeamPreference::PrimaryUseCaseEnum::Outbound', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::TeamPreference::PrimaryUseCaseEnum::Inbound', patterns)
+      end
+
+      test 'handles as_enum nested inside a class correctly resolves nesting' do
+        use_template(:minimal)
+        write_app_file(['app/models/order.rb'], <<~RUBY)
+          module Billing
+            class Order
+              # @pack_public
+              as_enum :status, pending: 'pending', paid: 'paid'
+            end
+          end
+        RUBY
+
+        file_path = to_app_path('app/models/order.rb')
+        patterns = ['app/models/**/*.rb']
+
+        assert GranularPublicityResolver.public_constant?(file_path, '::Billing::Order::StatusEnum', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Billing::Order::StatusEnum::Pending', patterns)
+        assert GranularPublicityResolver.public_constant?(file_path, '::Billing::Order::StatusEnum::Paid', patterns)
+        refute GranularPublicityResolver.public_constant?(file_path, '::StatusEnum', patterns)
+      end
+
       test 'returns true for method in class << self nested in module' do
         use_template(:minimal)
         write_app_file(['app/services/outer/inner.rb'], <<~RUBY)
